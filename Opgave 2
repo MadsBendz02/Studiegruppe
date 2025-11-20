@@ -1,0 +1,109 @@
+
+
+ #OPDEL colldf I DE 3 TABELLER FRA SQL-SKEMAET
+
+  #TABEL: dealer (invariant)
+dealer_table <- colldf %>%
+  transmute(
+    dealer_id = carid,
+    seller_name,
+    seller_address,
+    seller_cvr
+  ) %>%
+  distinct()
+
+#TABEL: car (invariant)
+car_table <- colldf %>%
+  transmute(
+    carid,
+    makemodel,
+    props,
+    link,
+    dealer_id = carid) %>%
+  distinct()
+
+#TABEL: car_observation (tidsserie)
+obs_table <- colldf %>%
+  transmute(
+    carid,
+    price,
+    scrapedate = Sys.Date()     # første scraping-dato
+  )
+
+#INDSÆT DATA I SQL VIA 
+
+  
+
+#Insert dealer-data
+dbWriteTable(
+  con,
+  name = "dealer",
+  value = dealer_table,
+  append = TRUE,
+  row.names = FALSE
+)
+
+#Insert car-data
+dbWriteTable(
+  con,
+  name = "car",
+  value = car_table,
+  append = TRUE,
+  row.names = FALSE
+)
+
+#Insert observations
+dbWriteTable(
+  con,
+  name = "car_observation",
+  value = obs_table,
+  append = TRUE,
+  row.names = FALSE
+)
+
+new_scrape <- new_scrape %>%
+  transmute(
+    carid,
+    price,
+    scrapedate     # første scraping-dato
+  )
+
+dbWriteTable(con, "car_observation", new_scrape,
+             append = TRUE, row.names = FALSE)
+
+#SÆT SOLD PÅ
+# her antager vi, at 'con' allerede findes,
+# og at du allerede har library(DBI), RMariaDB, dplyr loaded
+
+obs_all <- dbReadTable(con, "car_observation")
+
+latest_date <- max(as.Date(obs_all$scrapedate))
+
+current_ids <- obs_all %>%
+  filter(as.Date(scrapedate) == latest_date) %>%
+  pull(carid) %>%
+  unique()
+
+old_ids <- obs_all %>%
+  filter(as.Date(scrapedate) < latest_date) %>%
+  pull(carid) %>%
+  unique()
+
+sold_ids <- setdiff(old_ids, current_ids)
+
+for(id in sold_ids){
+  dbExecute(
+    con,
+    "
+    UPDATE car_observation
+    SET sold = 1
+    WHERE carid = ?
+    ORDER BY scrapedate DESC
+    LIMIT 1
+    ",
+    params = list(id)
+  )
+}
+
+
+
